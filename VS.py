@@ -400,6 +400,11 @@ summary = {
     "SpO2": spo2,
     "SpO2_status": spo2_status,
 }
+st.dataframe(pd.DataFrame([summary]))
+
+final_ok = st.checkbox(
+    "ยืนยันว่าข้อมูลทั้งหมดถูกต้อง"
+)
 
 if st.button("Save ลง GitHub CSV"):
     if not final_ok:
