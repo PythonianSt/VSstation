@@ -8,6 +8,9 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from openai import OpenAI
 from streamlit_qrcode_scanner import qrcode_scanner
+import cv2
+import numpy as np
+from urllib.parse import urlparse, parse_qs
 
 st.set_page_config(page_title="VS Station", page_icon="🩺", layout="centered")
 
@@ -20,6 +23,28 @@ GITHUB_FILE = st.secrets.get("GITHUB_FILE", "student_registry_log.csv")
 
 MODEL = st.secrets.get("OPENAI_MODEL", "gpt-5.5")
 
+def read_qr_from_image(uploaded_img):
+    file_bytes = np.asarray(bytearray(uploaded_img.getvalue()), dtype=np.uint8)
+    img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+
+    detector = cv2.QRCodeDetector()
+    data, points, _ = detector.detectAndDecode(img)
+
+    if data:
+        return data.strip()
+    return ""
+    
+
+def extract_student_id(qr_text):
+    if not qr_text:
+        return ""
+
+    if "student_ID=" in qr_text:
+        parsed = urlparse(qr_text)
+        qs = parse_qs(parsed.query)
+        return qs.get("student_ID", [""])[0]
+
+    return qr_text.strip()
 
 def bkk_now():
     return datetime.now(ZoneInfo("Asia/Bangkok")).strftime("%Y-%m-%d %H:%M:%S")
@@ -183,49 +208,69 @@ def append_to_github(row):
     github_save_csv(new_df)
 
 
-st.title("📷 VS Station QR Scanner")
+st.title("📷 VS Station")
+st.caption("Scan QR Code นักศึกษา หรือกรอก student_ID แทนได้")
 
 if "student_ID" not in st.session_state:
     st.session_state["student_ID"] = ""
 
-if "access_ok" not in st.session_state:
-    st.session_state["access_ok"] = False
+st.subheader("1) Scan QR Code นักศึกษา")
 
-qr_text = qrcode_scanner("เปิดกล้องเพื่อ Scan QR Code ของนักศึกษา")
+qr_img = st.camera_input(
+    "เปิดกล้องมือถือเพื่อถ่าย QR Code ของนักศึกษา",
+    key="qr_camera"
+)
 
-if qr_text:
-    # QR อาจเป็น URL เช่น https://xxx.streamlit.app/?student_ID=680001
-    if "student_ID=" in qr_text:
-        student_id = qr_text.split("student_ID=")[-1].split("&")[0]
+if qr_img:
+    qr_text = read_qr_from_image(qr_img)
+
+    if qr_text:
+        student_id_from_qr = extract_student_id(qr_text)
+        st.session_state["student_ID"] = student_id_from_qr
+        st.success(f"อ่าน QR สำเร็จ: {student_id_from_qr}")
     else:
-        # หรือ QR อาจเป็น student_ID ตรง ๆ
-        student_id = qr_text.strip()
+        st.error("ยังอ่าน QR ไม่ได้ กรุณาถ่ายใหม่ให้ QR ชัดและอยู่กลางภาพ")
 
-    st.session_state["student_ID"] = student_id
-    st.success(f"อ่าน QR สำเร็จ: {student_id}")
+st.subheader("หรือกรอก student_ID แทน")
+
+manual_student_id = st.text_input(
+    "กรอก student_ID หาก scan QR ไม่ได้",
+    value=st.session_state["student_ID"]
+)
+
+if manual_student_id:
+    st.session_state["student_ID"] = manual_student_id.strip()
 
 if not st.session_state["student_ID"]:
-    st.warning("กรุณา Scan QR Code ก่อน")
-    st.stop()
-
-access_code = st.text_input("กรอกรหัส 1 = นักศึกษา, 01 = เจ้าหน้าที่", type="password")
-
-if access_code == "1":
-    st.session_state["user_type"] = "student"
-    st.session_state["access_ok"] = True
-elif access_code == "01":
-    st.session_state["user_type"] = "staff"
-    st.session_state["access_ok"] = True
-elif access_code:
-    st.error("รหัสไม่ถูกต้อง")
-    st.stop()
-else:
+    st.warning("กรุณา scan QR หรือกรอก student_ID ก่อน")
     st.stop()
 
 student_id = st.session_state["student_ID"]
-user_type = st.session_state["user_type"]
 
-st.success(f"เข้าสู่หน้า VS Station: {student_id} / {user_type}")
+st.info(f"Student ID: {student_id}")
+
+st.subheader("2) เลือกผู้ใช้งาน")
+
+access_code = st.text_input(
+    "กรอกรหัส 1 = นักศึกษา, 01 = เจ้าหน้าที่",
+    type="password"
+)
+
+if access_code == "1":
+    user_type = "student"
+    st.success("เข้าสู่โหมดนักศึกษา")
+elif access_code == "01":
+    user_type = "staff"
+    st.success("เข้าสู่โหมดเจ้าหน้าที่")
+else:
+    if access_code:
+        st.error("รหัสไม่ถูกต้อง")
+    st.stop()
+
+#student_id = st.session_state["student_ID"]
+#user_type = st.session_state["user_type"]
+
+#st.success(f"เข้าสู่หน้า VS Station: {student_id} / {user_type}")
 
 
 # ---------- BP ----------
