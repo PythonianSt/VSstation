@@ -2,4 +2,4 @@ streamlit
 pandas
 requests
 openai
-streamlit-qrcode-scanner
+opencv-python-headless
