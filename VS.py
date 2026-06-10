@@ -198,14 +198,22 @@ def github_save_csv(df):
 def append_to_github(row):
     old_content, _ = github_get_file()
 
+    new_row_df = pd.DataFrame([row])
+
     if old_content:
         old_df = pd.read_csv(StringIO(old_content), dtype=str).fillna("")
-        new_df = pd.concat([old_df, pd.DataFrame([row])], ignore_index=True)
+
+        # รวมคอลัมน์เก่า + ใหม่
+        all_cols = list(dict.fromkeys(list(old_df.columns) + list(new_row_df.columns)))
+
+        old_df = old_df.reindex(columns=all_cols, fill_value="")
+        new_row_df = new_row_df.reindex(columns=all_cols, fill_value="")
+
+        new_df = pd.concat([old_df, new_row_df], ignore_index=True)
     else:
-        new_df = pd.DataFrame([row])
+        new_df = new_row_df
 
     github_save_csv(new_df)
-
 
 st.title("📷 VS Station")
 st.caption("Scan QR Code นักศึกษา หรือกรอก student_ID แทนได้")
@@ -381,20 +389,16 @@ timestamp = bkk_now()
 
 summary = {
     "student_ID": student_id,
+    "timestamp_BKK": bkk_now(),
     "station": "VS",
     "user_type": user_type,
-
     "SBP": sbp,
     "DBP": dbp,
     "BP_status": bp_status,
-
     "T": round(temp, 1),
     "T_status": temp_status,
-
     "SpO2": spo2,
     "SpO2_status": spo2_status,
-
-    "timestamp_BKK": bkk_now()
 }
 
 if st.button("Save ลง GitHub CSV"):
