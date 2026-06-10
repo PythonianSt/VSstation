@@ -7,7 +7,6 @@ from io import StringIO
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from openai import OpenAI
-from streamlit_qrcode_scanner import qrcode_scanner
 import cv2
 import numpy as np
 from urllib.parse import urlparse, parse_qs
