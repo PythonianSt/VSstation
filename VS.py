@@ -7,6 +7,7 @@ from io import StringIO
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from openai import OpenAI
+from streamlit_qrcode_scanner import qrcode_scanner
 import cv2
 import numpy as np
 from urllib.parse import urlparse, parse_qs
@@ -383,19 +384,19 @@ summary = {
     "student_ID": student_id,
     "station": "VS",
     "user_type": user_type,
+
     "SBP": sbp,
     "DBP": dbp,
     "BP_status": bp_status,
+
     "T": round(temp, 1),
     "T_status": temp_status,
+
     "SpO2": spo2,
     "SpO2_status": spo2_status,
-    "timestamp_BKK": timestamp,
+
+    "timestamp_BKK": bkk_now()
 }
-
-st.dataframe(pd.DataFrame([summary]))
-
-final_ok = st.checkbox("ยืนยันบันทึกข้อมูลทั้งหมด")
 
 if st.button("Save ลง GitHub CSV"):
     if not final_ok:
@@ -404,7 +405,6 @@ if st.button("Save ลง GitHub CSV"):
 
     try:
         append_to_github(summary)
-        st.success("บันทึกข้อมูล VS ลง GitHub CSV เรียบร้อยแล้ว")
-        st.info("กรณีทำซ้ำ ระบบจะ append แถวใหม่พร้อม timestamp_BKK")
+        st.success("บันทึกข้อมูล VS ลง GitHub CSV พร้อม timestamp_BKK แล้ว")
     except Exception as e:
         st.error(f"บันทึก GitHub ไม่สำเร็จ: {e}")
