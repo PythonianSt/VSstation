@@ -7,6 +7,7 @@ from io import StringIO
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from openai import OpenAI
+from streamlit_qrcode_scanner import qrcode_scanner
 
 st.set_page_config(page_title="VS Station", page_icon="🩺", layout="centered")
 
@@ -182,30 +183,49 @@ def append_to_github(row):
     github_save_csv(new_df)
 
 
-st.title("🩺 VS Station")
-st.caption("วัด BP → T → SpO2 แล้วบันทึกลง GitHub CSV")
+st.title("📷 VS Station QR Scanner")
 
-student_id = get_student_id_from_url()
+if "student_ID" not in st.session_state:
+    st.session_state["student_ID"] = ""
 
-if not student_id:
-    student_id = st.text_input("กรอก student_ID จาก QR code")
+if "access_ok" not in st.session_state:
+    st.session_state["access_ok"] = False
 
-if not student_id:
+qr_text = qrcode_scanner("เปิดกล้องเพื่อ Scan QR Code ของนักศึกษา")
+
+if qr_text:
+    # QR อาจเป็น URL เช่น https://xxx.streamlit.app/?student_ID=680001
+    if "student_ID=" in qr_text:
+        student_id = qr_text.split("student_ID=")[-1].split("&")[0]
+    else:
+        # หรือ QR อาจเป็น student_ID ตรง ๆ
+        student_id = qr_text.strip()
+
+    st.session_state["student_ID"] = student_id
+    st.success(f"อ่าน QR สำเร็จ: {student_id}")
+
+if not st.session_state["student_ID"]:
+    st.warning("กรุณา Scan QR Code ก่อน")
     st.stop()
 
-st.info(f"Student ID: {student_id}")
-
-access_code = st.text_input("กรอกรหัส", type="password")
+access_code = st.text_input("กรอกรหัส 1 = นักศึกษา, 01 = เจ้าหน้าที่", type="password")
 
 if access_code == "1":
-    user_type = "student"
-    st.success("โหมดนักศึกษา")
+    st.session_state["user_type"] = "student"
+    st.session_state["access_ok"] = True
 elif access_code == "01":
-    user_type = "staff"
-    st.success("โหมดเจ้าหน้าที่ประจำสถานี")
-else:
-    st.warning("กรุณากรอกรหัส 1 สำหรับนักศึกษา หรือ 01 สำหรับเจ้าหน้าที่")
+    st.session_state["user_type"] = "staff"
+    st.session_state["access_ok"] = True
+elif access_code:
+    st.error("รหัสไม่ถูกต้อง")
     st.stop()
+else:
+    st.stop()
+
+student_id = st.session_state["student_ID"]
+user_type = st.session_state["user_type"]
+
+st.success(f"เข้าสู่หน้า VS Station: {student_id} / {user_type}")
 
 
 # ---------- BP ----------
