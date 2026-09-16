@@ -2,11 +2,9 @@ import streamlit as st
 import pandas as pd
 import requests
 import base64
-import json
 from io import StringIO
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from openai import OpenAI
 import cv2
 import numpy as np
 from urllib.parse import urlparse, parse_qs
@@ -22,13 +20,10 @@ section[data-testid="stSidebar"] { background: #ffffff; }
 </style>
 """, unsafe_allow_html=True)
 
-client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-
 GITHUB_TOKEN  = st.secrets["GITHUB_TOKEN"]
 GITHUB_REPO   = st.secrets["GITHUB_REPO"]
 GITHUB_BRANCH = st.secrets.get("GITHUB_BRANCH", "main")
 GITHUB_FILE   = st.secrets.get("GITHUB_FILE",   "student_registry_log.csv")
-MODEL         = st.secrets.get("OPENAI_MODEL",   "gpt-4o")   # vision-capable
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -53,58 +48,6 @@ def extract_student_id(qr_text):
         qs = parse_qs(parsed.query)
         return qs.get("student_ID", [""])[0]
     return qr_text.strip()
-
-
-def image_to_base64(uploaded_img):
-    return base64.b64encode(uploaded_img.getvalue()).decode("utf-8")
-
-
-# ── AI extractor (auto-called on capture) ─────────────────────────────────────
-
-def ai_extract(image_file, mode):
-    """Call OpenAI vision and return a dict of extracted values."""
-    img64 = image_to_base64(image_file)
-
-    instructions = {
-        "bp": (
-            "Extract blood pressure from the device screen.\n"
-            "Return JSON only — no markdown, no extra text:\n"
-            '{"SBP": number or null, "DBP": number or null}'
-        ),
-        "temp": (
-            "Extract body temperature in Celsius from the device screen.\n"
-            "Return JSON only:\n"
-            '{"T": number or null}'
-        ),
-        "spo2": (
-            "This is a pulse-oximeter screen. Extract SpO2 percentage AND pulse/heart rate.\n"
-            "SpO2 is usually the larger number labelled %SpO2 or %.\n"
-            "Pulse rate is usually labelled PR, bpm, or ♥.\n"
-            "Return JSON only:\n"
-            '{"SpO2": number or null, "PR": number or null}\n'
-            "IMPORTANT: SpO2 should be between 70-100. PR should be between 30-250. "
-            "If you are not confident about SpO2 return null — do NOT guess."
-        ),
-    }
-
-    response = client.responses.create(
-        model=MODEL,
-        input=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "input_text",  "text": instructions[mode]},
-                    {"type": "input_image", "image_url": f"data:image/jpeg;base64,{img64}"},
-                ],
-            }
-        ],
-    )
-
-    text = response.output_text.strip().replace("```json", "").replace("```", "").strip()
-    try:
-        return json.loads(text)
-    except Exception:
-        return {}
 
 
 # ── Colour / label helpers ────────────────────────────────────────────────────
@@ -225,35 +168,16 @@ def append_to_github(row):
     github_save_csv(new_df)
 
 
-# ── Utility: safe int / float fallback ───────────────────────────────────────
-
-def safe_int(val, default=0):
-    try:
-        return int(val)
-    except Exception:
-        return default
-
-
-def safe_float(val, default=0.0):
-    try:
-        return float(val)
-    except Exception:
-        return default
-
-
 # ══════════════════════════════════════════════════════════════════════════════
 # UI
 # ══════════════════════════════════════════════════════════════════════════════
 
-st.title("📷 VS Station")
+st.title("🩺 VS Station")
 st.caption("Scan QR Code นักศึกษา หรือกรอก student_ID แทนได้")
 
 # ── Session-state defaults ────────────────────────────────────────────────────
 for k, v in {
     "student_ID": "",
-    "SBP": None, "DBP": None,
-    "T":   None,
-    "SpO2": None, "PR": None,
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -305,97 +229,54 @@ else:
 
 # ── 3) Blood Pressure ─────────────────────────────────────────────────────────
 st.header("1) Blood Pressure")
+col_sbp, col_dbp = st.columns(2)
+with col_sbp:
+    sbp = st.number_input(
+        "SBP (mmHg)", min_value=40, max_value=300,
+        value=None, step=1, placeholder="เช่น 120"
+    )
+with col_dbp:
+    dbp = st.number_input(
+        "DBP (mmHg)", min_value=20, max_value=200,
+        value=None, step=1, placeholder="เช่น 80"
+    )
 
-bp_img = st.camera_input("ถ่ายภาพหน้าจอเครื่องวัด BP (AI อ่านค่าอัตโนมัติ)",
-                          key="bp_cam")
-
-if bp_img:
-    st.image(bp_img)
-    # Auto-extract on every new capture
-    with st.spinner("AI กำลังอ่านค่า BP …"):
-        data = ai_extract(bp_img, "bp")
-        if data.get("SBP") is not None:
-            st.session_state["SBP"] = data["SBP"]
-        if data.get("DBP") is not None:
-            st.session_state["DBP"] = data["DBP"]
-
-    sbp = st.number_input("SBP", 0, 300,
-                           value=safe_int(st.session_state["SBP"], 0), step=1)
-    dbp = st.number_input("DBP", 0, 200,
-                           value=safe_int(st.session_state["DBP"], 0), step=1)
-    bp_ok = st.checkbox("ยอมรับค่า BP", key="bp_ok")
-
-    bp_status = bp_color(sbp, dbp)
+bp_status = bp_color(sbp, dbp)
+if sbp is not None and dbp is not None:
     st.markdown(f"### BP: {sbp}/{dbp} mmHg — {label(bp_status)}")
-
-    if not bp_ok:
-        st.stop()
-else:
-    st.stop()
 
 
 # ── 4) Temperature ────────────────────────────────────────────────────────────
 st.header("2) Temperature")
-
-temp_img = st.camera_input("ถ่ายภาพหน้าจอเครื่องวัดอุณหภูมิ (AI อ่านค่าอัตโนมัติ)",
-                            key="temp_cam")
-
-if temp_img:
-    st.image(temp_img)
-    with st.spinner("AI กำลังอ่านค่า T …"):
-        data = ai_extract(temp_img, "temp")
-        if data.get("T") is not None:
-            st.session_state["T"] = data["T"]
-
-    temp = st.number_input("T °C", 30.0, 45.0,
-                            value=safe_float(st.session_state["T"], 36.5),
-                            step=0.1)
-    temp_ok = st.checkbox("ยอมรับค่า T", key="temp_ok")
-
-    temp_status = temp_color(temp)
+temp = st.number_input(
+    "T (°C)", min_value=30.0, max_value=45.0,
+    value=None, step=0.1, format="%.1f", placeholder="เช่น 36.5"
+)
+temp_status = temp_color(temp)
+if temp is not None:
     st.markdown(f"### T: {temp:.1f} °C — {label(temp_status)}")
-
-    if not temp_ok:
-        st.stop()
-else:
-    st.stop()
 
 
 # ── 5) SpO2 + Pulse Rate ──────────────────────────────────────────────────────
 st.header("3) SpO2 & Pulse Rate")
-st.caption("⚠️ AI อ่านค่า SpO2 จาก pulse oximeter อาจคลาดเคลื่อน กรุณาตรวจสอบค่าที่ได้ทุกครั้ง")
+col1, col2 = st.columns(2)
+with col1:
+    spo2 = st.number_input(
+        "SpO2 (%)", min_value=50, max_value=100,
+        value=None, step=1, placeholder="เช่น 98"
+    )
+with col2:
+    pr = st.number_input(
+        "Pulse Rate (bpm)", min_value=30, max_value=250,
+        value=None, step=1, placeholder="เช่น 80"
+    )
 
-spo2_img = st.camera_input("ถ่ายภาพหน้าจอเครื่องวัด SpO2 (AI อ่านค่าอัตโนมัติ)",
-                            key="spo2_cam")
-
-if spo2_img:
-    st.image(spo2_img)
-    with st.spinner("AI กำลังอ่านค่า SpO2 & PR …"):
-        data = ai_extract(spo2_img, "spo2")
-        if data.get("SpO2") is not None:
-            st.session_state["SpO2"] = data["SpO2"]
-        if data.get("PR") is not None:
-            st.session_state["PR"] = data["PR"]
-
-    col1, col2 = st.columns(2)
-    with col1:
-        spo2 = st.number_input("SpO2 %", 0, 100,
-                                value=safe_int(st.session_state["SpO2"], 0), step=1)
-    with col2:
-        pr = st.number_input("Pulse Rate (bpm)", 0, 300,
-                              value=safe_int(st.session_state["PR"], 0), step=1)
-
-    spo2_ok = st.checkbox("ยอมรับค่า SpO2 & PR", key="spo2_ok")
-
-    spo2_status = spo2_color(spo2)
-    pr_status   = pr_color(pr)
+spo2_status = spo2_color(spo2)
+pr_status   = pr_color(pr)
+if spo2 is not None:
     st.markdown(f"### SpO2: {spo2}% — {label(spo2_status)}")
+if pr is not None:
     st.markdown(f"### PR: {pr} bpm — {label(pr_status)}")
-
-    if not spo2_ok:
-        st.stop()
-else:
-    st.stop()
 
 
 # ── 6) Body Weight, Height, BMI ───────────────────────────────────────────────
@@ -428,6 +309,22 @@ else:
 
 # ── 7) Final confirm & save ───────────────────────────────────────────────────
 st.header("ยืนยันก่อนบันทึก")
+
+missing_vs = []
+if sbp is None:
+    missing_vs.append("SBP")
+if dbp is None:
+    missing_vs.append("DBP")
+if temp is None:
+    missing_vs.append("T")
+if spo2 is None:
+    missing_vs.append("SpO2")
+if pr is None:
+    missing_vs.append("PR")
+
+if missing_vs:
+    st.warning("กรุณากรอกข้อมูล VS ให้ครบ: " + ", ".join(missing_vs))
+    st.stop()
 
 summary = {
     "student_ID":    student_id,
@@ -462,3 +359,4 @@ if st.button("Save ลง GitHub CSV"):
         st.success("บันทึกข้อมูล VS ลง GitHub CSV พร้อม timestamp_BKK แล้ว ✅")
     except Exception as e:
         st.error(f"บันทึก GitHub ไม่สำเร็จ: {e}")
+
